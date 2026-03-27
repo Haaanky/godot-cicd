@@ -42,7 +42,17 @@ jobs:
         with:
           lfs: true
 
+      - name: Cache Godot binary and export templates
+        id: cache-godot
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/bin/godot
+            ~/.local/share/godot/export_templates
+          key: godot-${{ inputs.godot_version }}-${{ inputs.godot_release }}
+
       - name: Install Godot
+        if: steps.cache-godot.outputs.cache-hit != 'true'
         run: |
           FILENAME="Godot_v${{ inputs.godot_version }}-${{ inputs.godot_release }}_linux.x86_64"
           wget -q \
@@ -52,6 +62,7 @@ jobs:
           sudo install -m 755 "/tmp/${FILENAME}" /usr/local/bin/godot
 
       - name: Install export templates
+        if: steps.cache-godot.outputs.cache-hit != 'true'
         run: |
           TPZNAME="Godot_v${{ inputs.godot_version }}-${{ inputs.godot_release }}_export_templates.tpz"
           wget -q \
@@ -65,10 +76,21 @@ jobs:
       - name: Import assets
         run: godot --headless --import || true
 
-      - name: Run GUT unit tests
+      - name: Check GUT addon exists
         if: inputs.run_gut_tests
         run: |
-          godot --headless --import || true
+          if [ ! -f "addons/gut/gut_cmdln.gd" ]; then
+            echo "::error::GUT addon not found at addons/gut/gut_cmdln.gd — make sure it is committed to the repo."
+            exit 1
+          fi
+          if [ ! -d "tests/unit" ]; then
+            echo "::warning::No tests/unit directory found — skipping GUT tests."
+            echo "SKIP_GUT=true" >> "$GITHUB_ENV"
+          fi
+
+      - name: Run GUT unit tests
+        if: inputs.run_gut_tests && env.SKIP_GUT != 'true'
+        run: |
           godot --headless -s addons/gut/gut_cmdln.gd \
             -gdir=res://tests/unit -ginclude_subdirs -gexit
 
@@ -102,6 +124,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
 
       - name: Install Node dependencies
         run: npm ci

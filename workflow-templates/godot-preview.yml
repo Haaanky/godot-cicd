@@ -34,7 +34,17 @@ jobs:
         with:
           lfs: true
 
+      - name: Cache Godot binary and export templates
+        id: cache-godot
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/bin/godot
+            ~/.local/share/godot/export_templates
+          key: godot-${{ inputs.godot_version }}-${{ inputs.godot_release }}
+
       - name: Install Godot
+        if: steps.cache-godot.outputs.cache-hit != 'true'
         run: |
           FILENAME="Godot_v${{ inputs.godot_version }}-${{ inputs.godot_release }}_linux.x86_64"
           wget -q \
@@ -44,6 +54,7 @@ jobs:
           sudo install -m 755 "/tmp/${FILENAME}" /usr/local/bin/godot
 
       - name: Install export templates
+        if: steps.cache-godot.outputs.cache-hit != 'true'
         run: |
           TPZNAME="Godot_v${{ inputs.godot_version }}-${{ inputs.godot_release }}_export_templates.tpz"
           wget -q \
@@ -83,7 +94,7 @@ jobs:
         with:
           name: web-build-${{ github.sha }}
           path: build/web/
-          retention-days: 7
+          retention-days: 14
 
       - name: Compute branch slug
         id: slug
