@@ -27,7 +27,7 @@ const webServer = isLocalURL
 
 module.exports = defineConfig({
   // CONFIGURE: path to your test files
-  testDir: './tests/playwright',
+  testDir: './tests/e2e',
   timeout: 120_000,
   retries: 1,
   reporter: [['list'], ['html', { open: 'never' }]],
