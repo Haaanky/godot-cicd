@@ -1,4 +1,4 @@
-name: Clean Up Godot Branch Preview
+name: Clean Up Branch Preview
 
 on:
   workflow_call:

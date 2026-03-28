@@ -1,0 +1,134 @@
+name: GitHub Pages Branch Preview
+
+# Generic reusable workflow: deploy a pre-built static site to a preview
+# subdirectory on the gh-pages branch and post the URL to the PR.
+#
+# The preview is published at:
+#   https://{owner}.github.io/{repo}/preview/{branch-slug}/
+#
+# Usage in your repo:
+#
+#   jobs:
+#     build:
+#       runs-on: ubuntu-latest
+#       steps:
+#         - uses: actions/checkout@v4
+#         - name: Build your site
+#           run: npm run build        # <-- replace with your build command
+#         - uses: actions/upload-artifact@v4
+#           with:
+#             name: site
+#             path: dist/             # <-- replace with your output directory
+#
+#     preview:
+#       needs: build
+#       uses: ./.github/workflows/pages-preview.yml
+#       with:
+#         artifact_name: site
+
+on:
+  workflow_call:
+    inputs:
+      artifact_name:
+        description: "Name of the uploaded artifact containing the built site"
+        type: string
+        default: "site"
+      branch_pattern:
+        description: "Branch pattern that triggers previews (e.g. claude/**)"
+        type: string
+        default: "claude/**"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: gh-pages-preview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    name: Deploy Preview
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download site artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: _site
+
+      - name: Verify build directory
+        run: |
+          echo "Build contents:"
+          ls -lh _site/
+          echo "Total size: $(du -sh _site | cut -f1)"
+
+      - name: Compute branch slug
+        id: slug
+        run: |
+          SLUG="${{ github.ref_name }}"
+          SLUG="${SLUG//\//-}"
+          echo "value=${SLUG}" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy preview to gh-pages
+        run: |
+          PREVIEW_DIR="preview/${{ steps.slug.outputs.value }}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin gh-pages
+          git worktree add /tmp/gh-pages origin/gh-pages
+
+          rm -rf "/tmp/gh-pages/${PREVIEW_DIR}"
+          mkdir -p "/tmp/gh-pages/${PREVIEW_DIR}"
+          cp -r _site/. "/tmp/gh-pages/${PREVIEW_DIR}/"
+
+          cd /tmp/gh-pages
+          git add "${PREVIEW_DIR}"
+          git commit -m "Deploy preview for ${{ github.ref_name }} @ ${{ github.sha }}" || echo "Nothing to commit"
+          git push origin HEAD:gh-pages
+
+      - name: Post build status to PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+          SHA: ${{ github.sha }}
+          SLUG: ${{ steps.slug.outputs.value }}
+        run: |
+          PR_NUMBER=$(gh pr list \
+            --repo "${OWNER}/${REPO}" \
+            --head "${{ github.ref_name }}" \
+            --state open \
+            --json number \
+            --jq '.[0].number // empty')
+
+          if [ -z "${PR_NUMBER}" ]; then
+            echo "No open PR found for this branch — skipping comment."
+            exit 0
+          fi
+
+          MARKER="<!-- preview-bot -->"
+          BUILD_SIZE=$(du -sh _site | cut -f1)
+          PREVIEW_URL="https://${OWNER}.github.io/${REPO}/preview/${SLUG}/"
+          BODY=$(printf '%s\n**Preview deployed** for commit `%s`\n\nBuild size: **%s**\n\n**Preview URL:** %s\n\n*Preview is removed automatically when this PR is closed.*' \
+            "${MARKER}" "${SHA:0:7}" "${BUILD_SIZE}" "${PREVIEW_URL}")
+
+          EXISTING=$(gh api \
+            "repos/${OWNER}/${REPO}/issues/${PR_NUMBER}/comments" \
+            --jq ".[] | select(.body | startswith(\"${MARKER}\")) | .id" \
+            | head -1)
+
+          if [ -n "${EXISTING}" ]; then
+            gh api --method PATCH \
+              "repos/${OWNER}/${REPO}/issues/comments/${EXISTING}" \
+              -f body="${BODY}"
+          else
+            gh pr comment "${PR_NUMBER}" \
+              --repo "${OWNER}/${REPO}" \
+              --body "${BODY}"
+          fi

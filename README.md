@@ -1,24 +1,87 @@
 # godot-cicd
 
-Reusable GitHub Actions workflows for Godot 4 projects.
+Reusable GitHub Actions workflow templates for **all GitHub Pages projects** — generic static sites and Godot 4 games.
 
-## Workflows
+See [CLAUDE.md](CLAUDE.md) for full usage conventions and onboarding instructions for new repos.
 
-| Workflow | Trigger | Purpose |
-|---|---|---|
-| `godot-export-deploy.yml` | `workflow_call` | Export to Web + deploy to GitHub Pages + run E2E tests |
-| `godot-preview.yml` | `workflow_call` | Build preview for `claude/**` branches, post link to PR |
-| `godot-preview-cleanup.yml` | `workflow_call` | Remove preview directory when PR is closed |
-| `playwright-iterate.yml` | `workflow_call` | Scheduled E2E testing, auto-open/close issues on failure |
+---
 
-## Usage in your project
+## Workflow Templates
 
-Copy the workflow files from `workflow-templates/` into your game repo's `.github/workflows/` directory and adjust the inputs.
+### Generic (any project type)
 
-**Example `.github/workflows/deploy.yml` in your game repo:**
+| Workflow | Purpose |
+|---|---|
+| `pages-deploy.yml` | Deploy any pre-built static site to GitHub Pages + Playwright E2E tests |
+| `pages-preview.yml` | Branch preview builds → `/preview/{slug}/` + PR comment |
+| `godot-preview-cleanup.yml` | Remove preview directory when PR is closed |
+| `playwright-iterate.yml` | Scheduled E2E monitoring, auto-open/close issues on failure |
+
+### Godot 4 specific
+
+| Workflow | Purpose |
+|---|---|
+| `godot-export-deploy.yml` | Full Godot 4 export → Web → GitHub Pages + E2E tests |
+| `godot-preview.yml` | Godot preview build + deploy + PR comment with WASM/PCK sizes |
+
+---
+
+## Quick Start
+
+### Generic static site (Next.js, Hugo, plain HTML, docs…)
+
+1. Copy to `.github/workflows/` in your repo:
+   - `pages-deploy.yml`
+   - `pages-preview.yml`
+   - `godot-preview-cleanup.yml`
+   - `playwright-iterate.yml`
+
+2. Create a trigger workflow that runs your build and calls `pages-deploy.yml`:
 
 ```yaml
-name: Export, Deploy and E2E Test
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm run build              # your build command
+      - uses: actions/upload-artifact@v4
+        with:
+          name: site
+          path: dist/                   # your output directory
+
+  deploy:
+    needs: build
+    uses: ./.github/workflows/pages-deploy.yml
+    with:
+      artifact_name: site
+      site_url: "https://your-org.github.io/your-repo"
+```
+
+### Godot 4 game
+
+1. Copy to `.github/workflows/`:
+   - `godot-export-deploy.yml`
+   - `godot-preview.yml`
+   - `godot-preview-cleanup.yml`
+   - `playwright-iterate.yml`
+
+2. Create a trigger workflow:
+
+```yaml
+name: Deploy
 
 on:
   push:
@@ -34,50 +97,56 @@ concurrency:
   group: "pages"
   cancel-in-progress: false
 
-env:
-  GODOT_VERSION: "4.6.1"
-  GODOT_RELEASE: "stable"
-
 jobs:
   export:
-    name: Export and Deploy
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    # ... (copy from workflow-templates/godot-export-deploy.yml and fill in your GAME_URL)
+    uses: ./.github/workflows/godot-export-deploy.yml
+    with:
+      godot_version: "4.6.1"
+      godot_release: "stable"
+      game_url: "https://your-org.github.io/your-repo"
+      run_gut_tests: true
 ```
 
-Or copy the file directly:
+---
 
-```bash
-mkdir -p .github/workflows
-cp path/to/godot-cicd/workflow-templates/godot-export-deploy.yml .github/workflows/deploy.yml
-# Edit the file to set your GAME_URL and GODOT_VERSION
-```
+## E2E Tests
 
-## E2E tests
-
-The `tests/e2e/game.test.js` file is a template for Playwright tests against a Godot WebAssembly export.
-Copy it to your project's `tests/playwright/` directory and adapt it to your game's specific UI and interactions.
+Copy `config/package.json` and `config/playwright.config.js` to your project root.
+Copy `tests/e2e/game.test.js` to `tests/playwright/` and adapt to your site.
 
 The test file reads `GAME_URL` from the environment — no hardcoded URLs.
 
-## Directory structure
+---
+
+## Directory Structure
 
 ```
 godot-cicd/
+├── CLAUDE.md                          # Usage conventions and onboarding guide
 ├── workflow-templates/
-│   ├── godot-export-deploy.yml    # copy to .github/workflows/ in your game repo
-│   ├── godot-preview.yml
-│   ├── godot-preview-cleanup.yml
-│   └── playwright-iterate.yml
+│   ├── pages-deploy.yml               # Generic: deploy any static site
+│   ├── pages-preview.yml              # Generic: branch preview builds
+│   ├── godot-preview-cleanup.yml      # Generic: remove preview on PR close
+│   ├── playwright-iterate.yml         # Generic: scheduled E2E monitoring
+│   ├── godot-export-deploy.yml        # Godot 4: export + deploy
+│   └── godot-preview.yml             # Godot 4: preview builds
 ├── tests/
 │   └── e2e/
-│       └── game.test.js           # template — copy to your project
+│       └── game.test.js               # Template E2E test — copy and adapt
 ├── config/
-│   ├── playwright.config.js       # template — copy to your project
-│   └── package.json               # template — copy to your project
-├── .gitignore
+│   ├── playwright.config.js           # Template Playwright config
+│   └── package.json                   # Template package.json
 └── README.md
 ```
+
+---
+
+## Conventions
+
+| Item | Value |
+|---|---|
+| Preview branch pattern | `claude/**` |
+| Preview URL | `https://{owner}.github.io/{repo}/preview/{branch-slug}/` |
+| Playwright failure label | `playwright-failure` |
+| E2E tests location | `tests/playwright/` |
+| Node version | 20 |

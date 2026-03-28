@@ -1,10 +1,16 @@
-name: Playwright Iterate
+name: Playwright Scheduled Monitor
+
+# Reusable workflow: run Playwright tests on a schedule and auto-manage
+# GitHub issues when tests fail or recover.
+#
+# On failure: opens (or updates) an issue labelled `playwright-failure`.
+# On recovery: comments on and closes all open `playwright-failure` issues.
 
 on:
   workflow_call:
     inputs:
       game_url:
-        description: "Game URL to test (defaults to derived GitHub Pages URL)"
+        description: "Site URL to test (defaults to derived GitHub Pages URL: https://{owner}.github.io/{repo})"
         type: string
         default: ""
       schedule_cron:
@@ -73,7 +79,7 @@ jobs:
               labels: 'playwright-failure',
             });
 
-            const title = '🎭 Playwright tests failing on GitHub Pages';
+            const title = 'Playwright tests failing on GitHub Pages';
             const body = [
               `**Run:** [#${context.runNumber}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`,
               `**Triggered:** ${context.eventName}`,

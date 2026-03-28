@@ -1,0 +1,110 @@
+name: GitHub Pages Deploy and E2E Test
+
+# Generic reusable workflow: deploy any pre-built static site to GitHub Pages
+# and optionally run Playwright E2E tests against the live URL.
+#
+# Usage in your repo:
+#
+#   jobs:
+#     build:
+#       runs-on: ubuntu-latest
+#       steps:
+#         - uses: actions/checkout@v4
+#         - name: Build your site
+#           run: npm run build        # <-- replace with your build command
+#         - uses: actions/upload-artifact@v4
+#           with:
+#             name: site
+#             path: dist/             # <-- replace with your output directory
+#
+#     deploy:
+#       needs: build
+#       uses: ./.github/workflows/pages-deploy.yml
+#       with:
+#         artifact_name: site
+#         site_url: "https://your-org.github.io/your-repo"
+
+on:
+  workflow_call:
+    inputs:
+      artifact_name:
+        description: "Name of the uploaded artifact containing the built site"
+        type: string
+        default: "site"
+      site_url:
+        description: "URL of the deployed site for E2E tests"
+        type: string
+        required: true
+      run_e2e_tests:
+        description: "Run Playwright E2E tests after deploy"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to GitHub Pages
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Download site artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: _site
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  playwright:
+    name: Playwright E2E Tests
+    if: inputs.run_e2e_tests
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright tests
+        env:
+          GAME_URL: ${{ inputs.site_url }}
+        run: npx playwright test --reporter=list
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14
